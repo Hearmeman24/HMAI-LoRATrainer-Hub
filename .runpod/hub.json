@@ -6,9 +6,8 @@
   "config": {
     "runsOn": "GPU",
     "gpuCount": 1,
-    "gpuIds": "AMPERE_48,ADA_48_PRO,AMPERE_80,ADA_80_PRO,HOPPER_141",
+    "gpuIds": "HOPPER_141,AMPERE_80,ADA_80_PRO",
     "containerDiskInGb": 60,
-    "allowedCudaVersions": ["13.0"],
     "env": [
       {
         "key": "HF_TOKEN",
