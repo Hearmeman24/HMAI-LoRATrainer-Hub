@@ -1,0 +1,50 @@
+# AI-Toolkit ideogram4 LoRA template. arch "ideogram4"; fp8 repo; unconditional
+# lora; linear timesteps; conv 16. SOURCE_FINDINGS §4.
+---
+job: extension
+config:
+  name: aitk_lora
+  process:
+    - type: sd_trainer
+      training_folder: "{training_folder}"
+      device: cuda:0
+      network:
+        type: lora
+        linear: 32
+        linear_alpha: 32
+        conv: 16
+        conv_alpha: 16
+      save:
+        dtype: float16
+        save_every: 250
+        max_step_saves_to_keep: 100000
+      datasets:
+        - folder_path: "{dataset_path}"
+          caption_ext: txt
+          caption_dropout_rate: 0.05
+          cache_latents_to_disk: true
+          resolution: [1024]
+      train:
+        batch_size: 1
+        steps: 2000
+        gradient_accumulation: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: flowmatch
+        timestep_type: linear
+        optimizer: adamw8bit
+        lr: 1e-4
+        dtype: bf16
+        disable_sampling: true
+      model:
+        name_or_path: "{name_or_path}"
+        arch: ideogram4
+        quantize: true
+        quantize_te: true
+        qtype_te: qfloat8
+        low_vram: true
+        unconditional_lora_path: "ostris/ideogram_4_unconditional_lora/ideogram_4_unconditional_lora_r16.safetensors"
+meta:
+  name: aitk_lora
+  version: "1.0"

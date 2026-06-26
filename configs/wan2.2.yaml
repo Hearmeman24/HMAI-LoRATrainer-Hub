@@ -1,0 +1,59 @@
+# AI-Toolkit wan2.2 14b LoRA template. Nested job:extension / config.process[0]
+# shape (SOURCE_FINDINGS §0). System paths are {placeholders} (N1); name,
+# trigger_word, caption_ext, steps, save_every, max_step_saves_to_keep, the
+# model_kwargs noise flags, device and training_folder are set by yaml_generator.
+# arch/repo/qtype byte-exact from SOURCE_FINDINGS §4.
+---
+job: extension
+config:
+  name: aitk_lora
+  process:
+    - type: sd_trainer
+      training_folder: "{training_folder}"
+      device: cuda:0
+      network:
+        type: lora
+        linear: 32
+        linear_alpha: 32
+        split_multistage_loras: true
+      save:
+        dtype: float16
+        save_every: 250
+        max_step_saves_to_keep: 100000
+      datasets:
+        - folder_path: "{dataset_path}"
+          caption_ext: txt
+          caption_dropout_rate: 0.05
+          num_frames: 1
+          resolution: [512, 768, 1024]
+      train:
+        batch_size: 1
+        steps: 2000
+        gradient_accumulation: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: flowmatch
+        timestep_type: linear
+        optimizer: adamw8bit
+        lr: 1e-4
+        optimizer_params:
+          weight_decay: 1e-4
+        switch_boundary_every: 10
+        cache_text_embeddings: true
+        dtype: bf16
+        disable_sampling: true
+      model:
+        name_or_path: "{name_or_path}"
+        arch: wan22_14b
+        quantize: true
+        qtype: "uint4|ostris/accuracy_recovery_adapters/wan22_14b_t2i_torchao_uint4.safetensors"
+        quantize_te: true
+        qtype_te: qfloat8
+        low_vram: true
+        model_kwargs:
+          train_high_noise: true
+          train_low_noise: true
+meta:
+  name: aitk_lora
+  version: "1.0"

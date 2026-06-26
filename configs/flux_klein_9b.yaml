@@ -1,0 +1,51 @@
+# AI-Toolkit flux_klein_9b LoRA template. arch "flux2_klein_9b" (NOT "flux2_klein");
+# unified diffusers repo OR local component dir both resolve via {name_or_path}.
+# weighted timesteps; match_target_res:false. SOURCE_FINDINGS §4.
+---
+job: extension
+config:
+  name: aitk_lora
+  process:
+    - type: sd_trainer
+      training_folder: "{training_folder}"
+      device: cuda:0
+      network:
+        type: lora
+        linear: 32
+        linear_alpha: 32
+      save:
+        dtype: float16
+        save_every: 250
+        max_step_saves_to_keep: 100000
+      datasets:
+        - folder_path: "{dataset_path}"
+          caption_ext: txt
+          caption_dropout_rate: 0.05
+          cache_latents_to_disk: true
+          resolution: [1024]
+      train:
+        batch_size: 1
+        steps: 2000
+        gradient_accumulation: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: flowmatch
+        timestep_type: weighted
+        optimizer: adamw8bit
+        lr: 1e-4
+        dtype: bf16
+        disable_sampling: true
+      model:
+        name_or_path: "{name_or_path}"
+        arch: flux2_klein_9b
+        quantize: true
+        qtype: qfloat8
+        quantize_te: true
+        qtype_te: qfloat8
+        low_vram: true
+        model_kwargs:
+          match_target_res: false
+meta:
+  name: aitk_lora
+  version: "1.0"
