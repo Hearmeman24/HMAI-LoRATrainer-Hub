@@ -5,38 +5,42 @@ MODELS_DIR, then sets/resolves name_or_path so the YAML generator receives
 a ready local path or HF repo id.
 
 Download kinds (DownloadItem.kind):
-  "repo"    — full HuggingFace repo cloned to MODELS_DIR/<local_subdir>
+  "repo"    — full HuggingFace repo to MODELS_DIR/<local_subdir>
   "url"     — direct URL (CivitAI, HF resolve, etc.) to MODELS_DIR/<local_subdir>/<filename>
   "hf_file" — single file from a HF repo: <repo_id>/resolve/main/<filename>
 
-aria2c is used for all downloads — 8 connections per server, 4 files in
-parallel for repo bulk downloads; 8 connections for single-file downloads.
+Download strategy (mirrors comfyui-wan / comfyui-qwen-image):
+  - HuggingFace URLs/repos go through huggingface_hub (hf_hub_download /
+    snapshot_download) with hf_xet acceleration. This is resumable,
+    integrity-checked, and avoids the per-chunk 403 noise aria2c hits against
+    HF's Xet CDN.
+  - Non-HF URLs (CivitAI, arbitrary direct links) fall back to aria2c with
+    multi-connection downloads.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 from loguru import logger
 
 import config as cfg
 from config import DownloadItem, ModelSpec, TrainingJob
 
-# aria2c tuning — 8 connections per server, 4 files in parallel
-ARIA2_CONNECTIONS = "8"
-ARIA2_SPLIT = "8"
-ARIA2_PARALLEL_FILES = "4"
-HF_API_BASE = "https://huggingface.co/api"
-HF_CDN_BASE = "https://huggingface.co"
+# aria2c tuning (non-HF downloads only) — 16 connections per server
+ARIA2_CONNECTIONS = "16"
+ARIA2_SPLIT = "16"
 
 
 # ---------------------------------------------------------------------------
-# aria2c helpers
+# aria2c helpers (non-HF downloads only)
 # ---------------------------------------------------------------------------
 
 def ensure_aria2c() -> None:
@@ -62,65 +66,50 @@ def _has_model_files(model_dir: Path) -> bool:
     return any(f.is_file() and f.stat().st_size > 1000 for f in model_dir.rglob("*"))
 
 
-def _hf_auth_header() -> list[str]:
-    """aria2c --header arg list for HF Bearer auth; empty if no token."""
-    token = os.environ.get("HF_TOKEN")
-    return [f"--header=Authorization: Bearer {token}"] if token else []
+# ---------------------------------------------------------------------------
+# HuggingFace helpers (hf_hub_download / snapshot_download + hf_xet)
+# ---------------------------------------------------------------------------
+
+def _is_hf_url(url: str) -> bool:
+    return urlparse(url).netloc == "huggingface.co"
 
 
-def _list_repo_files(repo_id: str, revision: str = "main") -> list[dict]:
-    """List all files in a HuggingFace repo via the HF tree API.
-
-    Returns a list of dicts with at least 'path' and 'size' for each file
-    (directories excluded). Raises RuntimeError on auth or network failure.
-    """
-    url = f"{HF_API_BASE}/models/{repo_id}/tree/{revision}?recursive=true"
-    headers = {"User-Agent": "hmai-loratrainer-hub/1.0"}
-    token = os.environ.get("HF_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            entries = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            raise RuntimeError(
-                f"Auth error listing {repo_id}. Set HF_TOKEN for gated repos."
-            ) from e
-        raise RuntimeError(f"HTTP {e.code} listing {repo_id}: {e.reason}") from e
-    except Exception as e:
-        raise RuntimeError(f"Failed to list {repo_id}: {e}") from e
-
-    return [e for e in entries if e.get("type") == "file"]
+def _parse_hf_url(url: str) -> tuple[str, str, str]:
+    """Split `.../{owner}/{repo}/resolve/{revision}/{path}` -> (repo_id, revision, filename)."""
+    parts = urlparse(url).path.lstrip("/").split("/")
+    if len(parts) < 5 or parts[2] != "resolve":
+        raise ValueError(f"Unrecognized HF URL shape: {url}")
+    repo_id = f"{parts[0]}/{parts[1]}"
+    revision = parts[3]
+    filename = "/".join(parts[4:])
+    return repo_id, revision, filename
 
 
-def _aria2c_batch(input_file: Path, log_label: str) -> None:
-    """Run aria2c against a batch-input file."""
-    ensure_aria2c()
-    cmd = [
-        "aria2c",
-        f"--max-connection-per-server={ARIA2_CONNECTIONS}",
-        f"--split={ARIA2_SPLIT}",
-        f"--max-concurrent-downloads={ARIA2_PARALLEL_FILES}",
-        "--continue=true",
-        "--auto-file-renaming=false",
-        "--allow-overwrite=true",
-        "--console-log-level=warn",
-        "--summary-interval=5",
-        "--retry-wait=2",
-        "--max-tries=5",
-        "--input-file", str(input_file),
-    ]
-    logger.info(
-        f"aria2c batch {log_label}: split={ARIA2_SPLIT} "
-        f"connections={ARIA2_CONNECTIONS} parallel_files={ARIA2_PARALLEL_FILES}"
+def _hf_download_file(
+    repo_id: str,
+    filename: str,
+    local_dir: Path,
+    out_name: str | None = None,
+    revision: str = "main",
+) -> Path:
+    """Download a single file from a HF repo via huggingface_hub (hf_xet accelerated)."""
+    from huggingface_hub import hf_hub_download
+
+    token = os.environ.get("HF_TOKEN") or None
+    local_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"hf_hub_download {repo_id}/{filename} @ {revision} -> {local_dir}")
+    downloaded = hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        revision=revision,
+        local_dir=str(local_dir),
+        token=token,
     )
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"aria2c batch failed for {log_label} (exit {result.returncode})"
-        )
+    out = local_dir / (out_name or Path(filename).name)
+    if Path(downloaded).resolve() != out.resolve():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(downloaded), str(out))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -128,67 +117,44 @@ def _aria2c_batch(input_file: Path, log_label: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _download_repo(repo_id: str, local_dir: Path) -> None:
-    """Download a full HuggingFace repo to local_dir using aria2c.
+    """Download a full HuggingFace repo to local_dir via snapshot_download.
 
-    Resolves the file list via the HF tree API, then batch-downloads with 8
-    connections per server and 4 files in parallel, preserving repo paths.
-    Already-present files (size matches) are skipped.
+    Uses huggingface_hub (hf_xet accelerated, resumable, integrity-checked);
+    already-cached files are skipped by the hub layer.
     """
-    logger.info(f"Downloading {repo_id} to {local_dir} (aria2c)")
+    from huggingface_hub import snapshot_download
+
+    token = os.environ.get("HF_TOKEN") or None
     local_dir.mkdir(parents=True, exist_ok=True)
-
-    files = _list_repo_files(repo_id)
-    if not files:
-        raise RuntimeError(f"No files found in repo {repo_id}")
-
-    token = os.environ.get("HF_TOKEN")
-    auth_lines: list[str] = []
-    if token:
-        auth_lines = [f"  header=Authorization: Bearer {token}"]
-
-    # Build aria2c input file: one URL + per-file options block per entry.
-    pending: list[str] = []
-    for entry in files:
-        rel_path = entry["path"]
-        size = entry.get("size", 0)
-        target = local_dir / rel_path
-        if target.exists() and target.stat().st_size == size and size > 0:
-            logger.debug(f"  skip (already present): {rel_path}")
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        url = f"{HF_CDN_BASE}/{repo_id}/resolve/main/{rel_path}"
-        pending.append(url)
-        pending.append(f"  dir={target.parent}")
-        pending.append(f"  out={target.name}")
-        pending.extend(auth_lines)
-
-    if not pending:
-        logger.info(f"Repo {repo_id} already fully present")
-        return
-
-    input_file = local_dir / ".aria2c_input.txt"
-    input_file.write_text("\n".join(pending) + "\n")
-    try:
-        _aria2c_batch(input_file, f"repo={repo_id}")
-    finally:
-        input_file.unlink(missing_ok=True)
-
+    logger.info(f"Downloading {repo_id} to {local_dir} (snapshot_download)")
+    snapshot_download(repo_id=repo_id, local_dir=str(local_dir), token=token)
     logger.info(f"Downloaded {repo_id}")
 
 
 def _download_url(url: str, local_dir: Path, local_filename: str) -> None:
-    """Download a file from a direct URL using aria2c (8 connections)."""
+    """Download a single file.
+
+    HF resolve URLs route through huggingface_hub; everything else (CivitAI,
+    arbitrary direct links) uses aria2c with multi-connection downloads.
+    """
     target_path = local_dir / local_filename
 
     if target_path.exists() and target_path.stat().st_size > 1000:
         logger.info(f"File already exists: {target_path}")
         return
 
-    logger.info(f"Downloading {url}")
     local_dir.mkdir(parents=True, exist_ok=True)
 
-    ensure_aria2c()
+    # HuggingFace -> huggingface_hub (no aria2c Xet-CDN 403 noise)
+    if _is_hf_url(url):
+        repo_id, revision, filename = _parse_hf_url(url)
+        _hf_download_file(repo_id, filename, local_dir, local_filename, revision)
+        logger.info(f"Downloaded {local_filename}")
+        return
 
+    # Non-HF -> aria2c
+    logger.info(f"Downloading {url} (aria2c)")
+    ensure_aria2c()
     cmd = [
         "aria2c",
         f"--max-connection-per-server={ARIA2_CONNECTIONS}",
@@ -201,13 +167,8 @@ def _download_url(url: str, local_dir: Path, local_filename: str) -> None:
         "--max-tries=5",
         f"--dir={local_dir}",
         f"--out={local_filename}",
+        url,
     ]
-
-    if "huggingface.co" in url:
-        cmd.extend(_hf_auth_header())
-
-    cmd.append(url)
-
     logger.info(f"aria2c downloading {local_filename} ({ARIA2_CONNECTIONS} connections)")
     result = subprocess.run(cmd)
     if result.returncode != 0:
@@ -217,11 +178,11 @@ def _download_url(url: str, local_dir: Path, local_filename: str) -> None:
     logger.info(f"Downloaded {local_filename}")
 
 
-def _download_hf_file(repo_id: str, filename: str, local_dir: Path, local_filename: str | None = None) -> None:
-    """Download a single file from a HuggingFace repo via aria2c."""
-    target_name = local_filename or Path(filename).name
-    url = f"{HF_CDN_BASE}/{repo_id}/resolve/main/{filename}"
-    _download_url(url=url, local_dir=local_dir, local_filename=target_name)
+def _download_hf_file(
+    repo_id: str, filename: str, local_dir: Path, local_filename: str | None = None
+) -> None:
+    """Download a single file from a HuggingFace repo via huggingface_hub."""
+    _hf_download_file(repo_id, filename, local_dir, local_filename or Path(filename).name)
 
 
 # ---------------------------------------------------------------------------
@@ -347,14 +308,9 @@ def ensure_model(job: TrainingJob) -> str:
         path = _resolve_download_item(item)
         resolved_paths.append(path)
 
-    # name_or_path resolution:
-    # - diffusers repos → use local directory (first repo item that landed)
-    # - url single-file (sdxl base) → use the HF repo id since AI-Toolkit will
-    #   from_pretrained from the repo; the local file we downloaded is its
-    #   single-file variant but the spec's name_or_path is the canonical answer.
-    # The YAML generator reads spec.name_or_path directly; for repo-kind items
-    # the spec already carries the correct repo id. The local path is the fallback
-    # for turbo/assistant adapter paths (those are HF paths auto-downloaded by aitk).
+    # name_or_path resolution: the spec carries the canonical answer (repo id for
+    # diffusers models that AI-Toolkit loads via from_pretrained; the local path
+    # is the fallback for single-file/adapter cases).
     if spec.name_or_path:
         return spec.name_or_path
 

@@ -21,6 +21,8 @@ export NCCL_IB_DISABLE=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_HOME="${VOLUME_ROOT}/hf_cache"
 export HF_HUB_CACHE="${HF_HOME}"
+# hf_xet acceleration for huggingface_hub downloads (model_downloader.py)
+export HF_XET_HIGH_PERFORMANCE=1
 export PYTHONPATH="${RUNTIME_DIR}:${PYTHONPATH:-}"
 # Full-dataset image runs (800+ pairs, 60+ epochs) exceed the 4h code
 # default; endpoint REST API rejects env updates so the floor lives here.

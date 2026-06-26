@@ -404,7 +404,8 @@ class TestCivitAIDownload:
 
 class TestDownloadPrimitives:
     @patch("model_downloader.subprocess.run")
-    def test_download_url_calls_aria2c(self, mock_run, tmp_path):
+    def test_download_url_nonhf_calls_aria2c(self, mock_run, tmp_path):
+        """Non-HF URLs (CivitAI / direct links) download via aria2c."""
         from model_downloader import _download_url
 
         mock_run.return_value = MagicMock(returncode=0)
@@ -412,16 +413,45 @@ class TestDownloadPrimitives:
         local_dir.mkdir(parents=True)
 
         _download_url(
-            url="https://huggingface.co/test/model/resolve/main/model.safetensors",
+            url="https://example.com/model.safetensors",
             local_dir=local_dir,
             local_filename="model.safetensors",
         )
 
         assert mock_run.called
-        # aria2c or "which aria2c" check
         cmds = [call.args[0] for call in mock_run.call_args_list]
         aria2c_calls = [c for c in cmds if c[0] == "aria2c"]
         assert aria2c_calls, "Expected at least one aria2c call"
+
+    @patch("huggingface_hub.hf_hub_download")
+    @patch("model_downloader.subprocess.run")
+    def test_download_url_hf_uses_hf_hub_not_aria2c(self, mock_run, mock_hf, tmp_path):
+        """HF resolve URLs route through huggingface_hub, never aria2c."""
+        from model_downloader import _download_url
+
+        local_dir = tmp_path / "models" / "sdxl"
+        local_dir.mkdir(parents=True)
+        # hf_hub_download "downloads" the file in place
+        def fake(**kw):
+            p = local_dir / kw["filename"]
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"\x00" * 5000)
+            return str(p)
+        mock_hf.side_effect = fake
+
+        _download_url(
+            url="https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/vae.safetensors",
+            local_dir=local_dir,
+            local_filename="vae.safetensors",
+        )
+
+        mock_hf.assert_called_once()
+        kw = mock_hf.call_args.kwargs
+        assert kw["repo_id"] == "stabilityai/stable-diffusion-xl-base-1.0"
+        assert kw["filename"] == "vae.safetensors"
+        # aria2c must NOT be used for HF URLs
+        aria2c_calls = [c.args[0] for c in mock_run.call_args_list if c.args and c.args[0][0] == "aria2c"]
+        assert not aria2c_calls, "HF URL must not fall back to aria2c"
 
     @patch("model_downloader.subprocess.run")
     def test_download_url_skips_if_file_present(self, mock_run, tmp_path):
@@ -438,41 +468,31 @@ class TestDownloadPrimitives:
         # subprocess should not be called since file already exists
         mock_run.assert_not_called()
 
-    @patch("model_downloader._aria2c_batch")
-    @patch("model_downloader._list_repo_files")
-    def test_download_repo_skips_existing_files(self, mock_list, mock_batch, tmp_path):
-        from model_downloader import _download_repo
-
-        local_dir = tmp_path / "models" / "myrepo"
-        local_dir.mkdir(parents=True)
-        existing = local_dir / "model.safetensors"
-        existing.write_bytes(b"\x00" * 5000)
-
-        mock_list.return_value = [
-            {"type": "file", "path": "model.safetensors", "size": 5000}
-        ]
-
-        _download_repo("test/myrepo", local_dir)
-
-        # File already present with correct size — batch should NOT be called.
-        mock_batch.assert_not_called()
-
-    @patch("model_downloader._aria2c_batch")
-    @patch("model_downloader._list_repo_files")
-    def test_download_repo_downloads_missing_files(self, mock_list, mock_batch, tmp_path):
+    @patch("huggingface_hub.snapshot_download")
+    def test_download_repo_calls_snapshot_download(self, mock_snap, tmp_path):
         from model_downloader import _download_repo
 
         local_dir = tmp_path / "models" / "newrepo"
-        local_dir.mkdir(parents=True)
-
-        mock_list.return_value = [
-            {"type": "file", "path": "config.json", "size": 200},
-            {"type": "file", "path": "model.safetensors", "size": 100000},
-        ]
-
         _download_repo("test/newrepo", local_dir)
 
-        mock_batch.assert_called_once()
+        mock_snap.assert_called_once()
+        kw = mock_snap.call_args.kwargs
+        assert kw["repo_id"] == "test/newrepo"
+        assert kw["local_dir"] == str(local_dir)
+
+    @patch("model_downloader._download_repo")
+    def test_resolve_skips_repo_when_files_present(self, mock_repo, tmp_path, monkeypatch):
+        """_resolve_download_item must NOT re-download a repo whose files exist."""
+        import model_downloader as md
+        monkeypatch.setattr(md.cfg, "MODELS_DIR", tmp_path / "models")
+        present = tmp_path / "models" / "diffusers-x"
+        present.mkdir(parents=True)
+        (present / "model.safetensors").write_bytes(b"\x00" * 5000)
+
+        md._resolve_download_item(
+            DownloadItem(kind="repo", repo_id="x/y", local_subdir="diffusers-x")
+        )
+        mock_repo.assert_not_called()
 
     def test_resolve_download_item_unknown_kind_raises(self, tmp_path):
         from model_downloader import _resolve_download_item

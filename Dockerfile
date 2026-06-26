@@ -35,7 +35,9 @@ RUN pip install --no-cache-dir --break-system-packages \
     loguru>=0.7.0 \
     toml>=0.10.0 \
     httpx>=0.27.0 \
-    requests>=2.31.0
+    requests>=2.31.0 \
+    huggingface_hub>=0.34.0 \
+    hf_xet>=1.1.0
 # NOTE: transformers/diffusers/peft/huggingface_hub omitted here — AI-Toolkit
 # requirements.txt pins exact versions (transformers==5.5.3, peft==0.18.1,
 # huggingface_hub==1.10.1, diffusers@git-SHA, torchao==0.10.0) and installing
