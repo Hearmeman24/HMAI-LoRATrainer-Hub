@@ -1,5 +1,6 @@
 # .circleci/config.yml  (CircleCI 2.1)
-# Builds the worker image and pushes it to Docker Hub on every v* tag.
+# - test: runs the unit suite on every branch push (also lets the project be set up).
+# - build_and_push: builds the worker image and pushes it to Docker Hub on every v* tag.
 version: 2.1
 
 executors:
@@ -10,8 +11,22 @@ executors:
     environment:
       DOCKER_BUILDKIT: 1
       COMPOSE_DOCKER_CLI_BUILD: 1
+  py:
+    docker:
+      - image: cimg/python:3.12
 
 jobs:
+  test:
+    executor: py
+    steps:
+      - checkout
+      - run:
+          name: Install deps
+          command: pip install -r requirements.txt pytest
+      - run:
+          name: Run unit tests
+          command: python -m pytest tests/ -q
+
   build_and_push:
     executor: docker-dind
     steps:
@@ -43,6 +58,13 @@ jobs:
 
 workflows:
   version: 2
+  # Runs on every branch push (default filters = all branches, no tags).
+  # This is also what lets CircleCI "Set Up Project" succeed.
+  test:
+    jobs:
+      - test
+
+  # Heavy image build — tags only.
   build_on_tag:
     jobs:
       - build_and_push:
