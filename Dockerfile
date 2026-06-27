@@ -100,6 +100,10 @@ RUN python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA {torch.ve
 # COPY is the LAST layer so editing worker code doesn't bust the heavy pip
 # cache above. .dockerignore keeps tests/docs/CI out of the image.
 COPY . /app/runtime
+# Explicit handler copy so the RunPod Hub handler-detector sees handler.py
+# (already included by `COPY .` above; this line is for static detection).
+COPY handler.py /app/runtime/handler.py
 WORKDIR /app/runtime
 
+# Worker boots via start.sh (env + torch/aitk pin), which runs `python handler.py`.
 CMD ["bash", "start.sh"]
