@@ -5,6 +5,28 @@ Works for SDXL, Wan 2.2, Qwen-Image, FLUX.2 Klein, Krea 2, Z-Image, and Ideogram
 
 ---
 
+## 🤖 Easiest way: let your coding agent do it
+
+This repo ships an agent skill ([`skills/hmai-lora-trainer/SKILL.md`](skills/hmai-lora-trainer/SKILL.md))
+that knows the whole workflow — deployment, storage setup, dataset prep, job submission,
+monitoring, and download. Start training with your favorite coding agent (Claude Code,
+Cursor, Codex, ...) by pasting this prompt:
+
+```
+Fetch and follow this skill:
+https://raw.githubusercontent.com/Hearmeman24/HMAI-LoRATrainer-Hub/main/skills/hmai-lora-trainer/SKILL.md
+
+I want to train a LoRA. Walk me through it end-to-end: deploying the HMAI LoRA Trainer
+serverless endpoint on RunPod (including S3/R2 storage so my files actually get saved),
+preparing my dataset zip, picking a model, submitting the training job, monitoring it,
+and downloading the finished .safetensors. Ask me for whatever you need — RunPod API key,
+model choice, dataset location, storage credentials.
+```
+
+The agent reads the skill and guides you through every step below.
+
+---
+
 ## Step 1 — Deploy the endpoint
 
 On the RunPod Hub, click **Deploy**. Pick a GPU (48 GB or larger — A100 / H100 recommended).
