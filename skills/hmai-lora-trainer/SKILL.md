@@ -24,11 +24,16 @@ is pre-configured; the user only picks a GPU and fills in environment variables.
 
 ### Option B: Manual serverless endpoint
 
-Create a new RunPod Serverless endpoint with:
+Prefer Option A. If you do go manual, **build the image from this repo's
+`Dockerfile`** and push it to your own registry — do not use
+`hearmeman/aio-lora-trainer`. That image pulls its runtime from a private repo
+at container start and dies on cold start without credentials you don't have.
+
+Then create a new RunPod Serverless endpoint with:
 
 | Setting | Value |
 |---|---|
-| Docker image | `hearmeman/aio-lora-trainer:v3.0.1` |
+| Docker image | the image you built from this repo's `Dockerfile` |
 | GPU | **80 GB VRAM recommended** (H100, H200, A100 80GB). Image-only jobs can run on less (e.g. 48 GB), but 80 GB is the safe default — video (Wan 2.2) and the larger image models need it. |
 | Container disk | **60 GB minimum** — base model weights are large. |
 | Execution timeout | **Raise it.** Training runs for hours; RunPod's default execution timeout will kill the job mid-training. Set it to the max you expect a run to take (the worker itself enforces a 12-hour cap via `MAX_TRAINING_HOURS`). |
