@@ -1,6 +1,6 @@
 ---
 name: hmai-lora-trainer
-description: Deploy the HMAI LoRA Trainer serverless endpoint on RunPod and train LoRAs end-to-end on it — SDXL, Wan 2.2, Qwen-Image (+2512), FLUX.2 Klein 9B, Krea 2 (+Turbo), Z-Image Turbo, and Ideogram 4. Use this skill whenever the user wants to train a LoRA, fine-tune a diffusion model on their own images, deploy the aio-lora-trainer template, set up the HMAI trainer endpoint, or asks anything about dataset prep, config overrides, checkpoints, or retrieving trained .safetensors from this endpoint — even if they just say "train a LoRA of X" without naming the service.
+description: Deploy the HMAI LoRA Trainer serverless endpoint on RunPod and train LoRAs end-to-end on it — SDXL, Wan 2.2, Qwen-Image (+2512), FLUX.2 Klein 9B, Krea 2 (+Turbo), Z-Image Turbo, and Ideogram 4. Use this skill whenever the user wants to train a LoRA, fine-tune a diffusion model on their own images, deploy the HMAI LoRA Trainer template, set up the HMAI trainer endpoint, or asks anything about dataset prep, config overrides, checkpoints, or retrieving trained .safetensors from this endpoint — even if they just say "train a LoRA of X" without naming the service.
 ---
 
 # HMAI LoRA Trainer — deploy & train end-to-end
@@ -28,7 +28,7 @@ Create a new RunPod Serverless endpoint with:
 
 | Setting | Value |
 |---|---|
-| Docker image | `hearmeman/aio-lora-trainer:v3.0.1` |
+| Docker image | `hearmeman/hmai-loratrainer-hub:v1.0.4`, built from this repo's `Dockerfile` with the worker code baked into the image. Do not use `hearmeman/aio-lora-trainer`: it clones its runtime from a private repo at container start, so without credentials it fails on cold start with `could not read Username for 'https://github.com'` and the worker never boots. |
 | GPU | **80 GB VRAM recommended** (H100, H200, A100 80GB). Image-only jobs can run on less (e.g. 48 GB), but 80 GB is the safe default — video (Wan 2.2) and the larger image models need it. |
 | Container disk | **60 GB minimum** — base model weights are large. |
 | Execution timeout | **Raise it.** Training runs for hours; RunPod's default execution timeout will kill the job mid-training. Set it to the max you expect a run to take (the worker itself enforces a 12-hour cap via `MAX_TRAINING_HOURS`). |
