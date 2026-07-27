@@ -127,6 +127,9 @@ Returns `{"ok": true, "smoke": true, ...}`.
 | `krea2` | Krea 2 |
 | `krea2_turbo` | Krea 2 Turbo |
 
+Krea 2, Krea 2 Turbo, FLUX.2 Klein 9B, and Ideogram 4 need `HF_TOKEN` and an
+accepted license. See [Gated models](#gated-models-accepting-the-license).
+
 ## Optional: where your LoRAs get uploaded
 
 Set these as endpoint environment variables. Use **S3** or **R2** (R2 wins if both are set).
@@ -134,4 +137,28 @@ Leave them blank to skip upload (the job returns local file paths instead).
 
 **S3:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET`, `S3_REGION`
 **Cloudflare R2:** `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
-**Gated models:** `HF_TOKEN` (only needed for FLUX.2 / Ideogram 4)
+**Gated models:** `HF_TOKEN` (needed for Krea 2, Krea 2 Turbo, FLUX.2 Klein 9B, and Ideogram 4)
+
+## Gated models: accepting the license
+
+Four models download from gated Hugging Face repos. Before your first job on one
+of them:
+
+1. Sign in to Hugging Face, open the model page below, and click
+   **Agree and access repository**. These repos auto-approve, so you get access
+   immediately.
+2. Create a token at <https://huggingface.co/settings/tokens> with the **Read** role.
+3. Set that token on your endpoint as the `HF_TOKEN` environment variable.
+
+| `model_type` | Accept the license at |
+|---|---|
+| `krea2` | <https://huggingface.co/krea/Krea-2-Raw> |
+| `krea2_turbo` | <https://huggingface.co/krea/Krea-2-Turbo> |
+| `flux_klein_9b` | <https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B> |
+| `ideogram4` | <https://huggingface.co/ideogram-ai/ideogram-4-fp8> |
+
+Accept the license with the same account that issued the token. `krea2` and
+`krea2_turbo` are separate repos, so accepting one does not cover the other.
+
+Without this, the job fails during model download with
+`GatedRepoError: 401 Client Error`.

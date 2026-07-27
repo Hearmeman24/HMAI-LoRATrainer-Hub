@@ -56,8 +56,31 @@ Plus, when needed:
 
 | Variable | When |
 |---|---|
-| `HF_TOKEN` | Required for gated base models: **FLUX.2 Klein 9B** and **Ideogram 4**. The user must also accept each model's license on Hugging Face with that account. Jobs on these models fail with a 401/403 download error without it. |
+| `HF_TOKEN` | Required for the gated base models: **Krea 2**, **Krea 2 Turbo**, **FLUX.2 Klein 9B**, and **Ideogram 4**. See *Hugging Face access* below. |
 | `CIVITAI_API_KEY` | Only for SDXL training on a custom CivitAI base checkpoint (`civitai_model_id`). |
+
+### Hugging Face access (gated models)
+
+Four `model_type`s download from gated Hugging Face repos. Accepting the license
+and setting `HF_TOKEN` is a one-time setup per Hugging Face account.
+
+| `model_type` | Accept the license at |
+|---|---|
+| `krea2` | https://huggingface.co/krea/Krea-2-Raw |
+| `krea2_turbo` | https://huggingface.co/krea/Krea-2-Turbo |
+| `flux_klein_9b` | https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B |
+| `ideogram4` | https://huggingface.co/ideogram-ai/ideogram-4-fp8 |
+
+1. Sign in to Hugging Face and open the model page for the `model_type` you plan
+   to train. Click **Agree and access repository**. These repos auto-approve, so
+   you get access immediately.
+2. Create a token at https://huggingface.co/settings/tokens with the **Read**
+   role.
+3. Add that token to the endpoint's environment variables as `HF_TOKEN`.
+
+Use the same account for both steps: the token only carries the licenses that
+account has accepted. `krea2` and `krea2_turbo` are separate repos, so accepting
+one does not grant the other.
 
 ### Verify the deployment (smoke test)
 
@@ -90,8 +113,8 @@ Follow these steps in order.
 | `z_image` | Z-Image Turbo | Turbo training adapter applied automatically. |
 | `ideogram4` | Ideogram 4 | **Gated — needs `HF_TOKEN`.** |
 | `flux_klein_9b` | FLUX.2 Klein 9B | **Gated — needs `HF_TOKEN`.** |
-| `krea2` | Krea 2 (raw base) | |
-| `krea2_turbo` | Krea 2 Turbo | Turbo training adapter applied automatically. |
+| `krea2` | Krea 2 (raw base) | **Gated — needs `HF_TOKEN`.** |
+| `krea2_turbo` | Krea 2 Turbo | **Gated — needs `HF_TOKEN`.** Turbo training adapter applied automatically. |
 
 Training defaults for every model: rank 32, lr 1e-4, adamw8bit, 100 epochs,
 checkpoint every 5 epochs. Override via `config_overrides` (Step 4).
@@ -208,7 +231,7 @@ On `COMPLETED`, the `output` looks like:
 | Symptom | Cause / fix |
 |---|---|
 | `error_type: "VALIDATION"` | Bad payload — the `error` message says which field. Common: missing `noise_variant` on wan2.2, `noise_variant`/`civitai_model_id` sent for a model that doesn't take it. |
-| 401/403 during model download | Gated model (FLUX.2, Ideogram 4) without `HF_TOKEN`, or license not accepted on HF. |
+| `GatedRepoError` / 401 / 403 during model download | Gated model (Krea 2, Krea 2 Turbo, FLUX.2, Ideogram 4) without `HF_TOKEN`, or the license was never accepted by the account that issued the token. See *Hugging Face access* in Part 1. |
 | CUDA out of memory | GPU too small for the model — redeploy with 80 GB VRAM. |
 | Job killed before finishing | Endpoint execution timeout too low — raise it in endpoint settings. Checkpoints already uploaded are safe. |
 | `"storage": "local_only"` in output | No S3/R2 env vars — files unreachable once the worker stops. Configure storage, re-run. |
